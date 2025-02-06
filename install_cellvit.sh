@@ -26,11 +26,17 @@ echo "🔹 The Conda environment will be created at: $ENV_DIR"
 echo "🔹 Creating Conda environment..."
 conda env create -f "$SCRIPT_DIR/environment_verbose.yaml" --prefix "$ENV_DIR"
 
+#Update conda
+conda update -n base -c defaults conda
+
 # Step 2: Activate the newly created Conda Environment
 echo "🔹 Activating environment..."
 # Ensure the conda command is available in this shell
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_DIR"
+
+#Install and upgrade wheels, setuptools and pip
+pip install --upgrade pip setuptools wheel
 
 # Step 3: Install additional pip dependencies from requirements.txt
 echo "🔹 Installing pip packages from requirements.txt..."
