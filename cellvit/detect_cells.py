@@ -34,6 +34,8 @@ def main():
         compression=args["compression"],
         batch_size=args["batch_size"],
         enforce_mixed_precision=args["enforce_amp"],
+        normalization=True,
+        normalization_vector_json="test_macenko.json"
     )
 
     if command.lower() == "process_wsi":

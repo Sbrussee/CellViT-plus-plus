@@ -34,6 +34,8 @@ from pathopatch.patch_extraction.dataset import (
 import snappy
 from cellvit.inference.wsi_meta import load_wsi_meta
 
+from torch_geometric.data import Data
+import multiprocessing
 
 class CellViTInferenceMemory(CellViTInference):
     def __init__(
@@ -133,6 +135,9 @@ class CellViTInferenceMemory(CellViTInference):
             classifier=self.classifier,
             binary=self.binary,
         )
+
+        #Get number of threads
+        self.ray_actors = min(multiprocessing.cpu_count(), self.ray_actors) if self.ray_actors > 0 else multiprocessing.cpu_count()
 
         # create ray actors for batch-wise postprocessing
         batch_pooling_actors = [
@@ -304,12 +309,12 @@ class CellViTInferenceMemory(CellViTInference):
             self.logger.info(
                 f"Create cell graph with embeddings and save it under: {str(self.outdir / f'{output_wsi_name}_cells.pt')}"
             )
-            graph = CellGraphDataWSI(
+            graph = Data(
                 x=torch.stack(graph_data["cell_tokens"]),
                 positions=torch.stack(graph_data["positions"]),
                 metadata=graph_data["metadata"],
             )
-            torch.save(graph, str(self.outdir / f"{output_wsi_name}_cells.pt"))
+            torch.save(graph, str(self.outdir / f"{output_wsi_name}_cell_graph.pt"))
 
         # final output message
         cell_stats_df = pd.DataFrame(cell_dict_wsi["cells"])
