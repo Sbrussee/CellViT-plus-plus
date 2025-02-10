@@ -20,41 +20,45 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #     CellViT-plus-plus/   <--- this script lives here
 ENV_DIR="$SCRIPT_DIR/../../envs/cellvit_env"
 
-echo "🔹 The Conda environment will be created at: $ENV_DIR"
 
 # Step 1: Create the Conda Environment using the provided environment file
-echo "🔹 Creating Conda environment..."
-conda env create -f "$SCRIPT_DIR/environment_verbose.yaml" --prefix "$ENV_DIR"
-
-#Update conda
-conda update -n base -c defaults conda
+if [ -d "$ENV_DIR" ]; then
+    echo "✅ Conda environment already exists at: $ENV_DIR"
+else
+    echo "🔹 Creating Conda environment..."
+    echo "🔹 The Conda environment will be created at: $ENV_DIR"
+    conda env create -f "$SCRIPT_DIR/environment_verbose.yaml" --prefix "$ENV_DIR"
+fi
 
 # Step 2: Activate the newly created Conda Environment
 echo "🔹 Activating environment..."
-# Ensure the conda command is available in this shell
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$ENV_DIR"
+# Check if slurm job
+if [ -z "$SLURM_JOB_ID" ]; then
+
+    # If not running in a SLURM job, activate the environment directly
+    conda activate "$ENV_DIR"
+else
+    # If running in a SLURM job, use the full path to the conda binary
+    module load tools/miniconda/python3.9/4.12.0
+    source "/share/software/tools/miniconda/3.9/4.12.0/etc/profile.d/conda.sh"
+    conda activate "$ENV_DIR"
+fi
+
+echo "✅ Conda environment activated."
 
 #Install and upgrade wheels, setuptools and pip
 pip install --upgrade pip setuptools wheel
+
+echo "✅ Wheels, setuptools and pip installed and upgraded."
 
 # Step 3: Install additional pip dependencies from requirements.txt
 echo "🔹 Installing pip packages from requirements.txt..."
 pip install -r "$SCRIPT_DIR/requirements.txt"
 
-# Step 4: Install PyTorch for your system
-echo "🔹 Checking PyTorch installation..."
-PYTORCH_VERSION="2.2.2"
-TORCHVISION_VERSION="0.17.2"
-TORCHAUDIO_VERSION="2.2.2"
-CUDA_VERSION="cu121"
+echo "✅ Pip packages installed."
 
-if python -c "import torch" &> /dev/null; then
-    echo "✅ PyTorch is already installed."
-else
-    echo "🔹 Installing PyTorch for CUDA $CUDA_VERSION..."
-    pip install torch=="$PYTORCH_VERSION" torchvision=="$TORCHVISION_VERSION" torchaudio=="$TORCHAUDIO_VERSION" --index-url https://download.pytorch.org/whl/"$CUDA_VERSION"
-fi
+echo "🔹 Installing PyTorch for CUDA $CUDA_VERSION..."
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 # Step 5: Verify the PyTorch installation
 echo "🔹 Verifying PyTorch installation..."

@@ -33,8 +33,8 @@ def main():
         graph=args["graph"],
         compression=args["compression"],
         batch_size=args["batch_size"],
-        enforce_mixed_precision=args["enforce_amp"],
-        normalization=True,
+        enforce_mixed_precision=True,
+        normalize_stains=True,
         normalization_vector_json="test_macenko.json"
     )
 

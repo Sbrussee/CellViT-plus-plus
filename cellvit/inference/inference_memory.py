@@ -13,7 +13,7 @@
 
 from pathlib import Path
 from typing import Union
-
+import logging
 import pandas as pd
 import ray
 import torch
@@ -36,6 +36,7 @@ from cellvit.inference.wsi_meta import load_wsi_meta
 
 from torch_geometric.data import Data
 import multiprocessing
+import os
 
 class CellViTInferenceMemory(CellViTInference):
     def __init__(
@@ -52,6 +53,8 @@ class CellViTInferenceMemory(CellViTInference):
         graph: bool = False,
         compression: bool = False,
         enforce_mixed_precision: bool = False,
+        normalize_stains: bool = False,
+        normalization_vector_json: Union[Path, str] = None,
     ) -> None:
         super(CellViTInferenceMemory, self).__init__(
             model_path=model_path,
@@ -67,6 +70,8 @@ class CellViTInferenceMemory(CellViTInference):
             enforce_mixed_precision=enforce_mixed_precision,
         )
         self.outdir = Path(outdir)
+        self.normalize_stains = normalize_stains
+        self.normalization_vector_json = normalization_vector_json
 
     def process_wsi(
         self,
@@ -107,6 +112,8 @@ class CellViTInferenceMemory(CellViTInference):
             apply_prefilter=apply_prefilter,
             filter_patches=filter_patches,
             target_mpp_tolerance=0.035,
+            normalize_stains=self.normalize_stains,
+            normalization_vector_json=self.normalization_vector_json,
             **kwargs,
         )
         wsi_path = Path(wsi_path)
@@ -136,9 +143,6 @@ class CellViTInferenceMemory(CellViTInference):
             binary=self.binary,
         )
 
-        #Get number of threads
-        self.ray_actors = min(multiprocessing.cpu_count(), self.ray_actors) if self.ray_actors > 0 else multiprocessing.cpu_count()
-
         # create ray actors for batch-wise postprocessing
         batch_pooling_actors = [
             BatchPoolingActor.remote(postprocessor, self.run_conf)
@@ -146,6 +150,10 @@ class CellViTInferenceMemory(CellViTInference):
         ]
 
         call_ids = []
+
+
+        #Empty GPU memory
+        torch.cuda.empty_cache()
 
         self.logger.info("Extracting cells using CellViT...")
         with torch.no_grad():
@@ -163,12 +171,20 @@ class CellViTInferenceMemory(CellViTInference):
                 else:
                     predictions = self.model.forward(patches, retrieve_tokens=True)
                 predictions = self.apply_softmax_reorder(predictions)
-                call_id = batch_actor.convert_batch_to_graph_nodes.remote(
-                    predictions, metadata
-                )
+                #Move the values in the predictions dictionary to the CPU
+                predictions = {k: v.cpu() for k, v in predictions.items()}
+                call_id = batch_actor.convert_batch_to_graph_nodes.remote(predictions, metadata)
+                
                 call_ids.append(call_id)
                 pbar.update(1)
                 pbar.total = len(wsi_inference_dataloader)
+
+                #Check GPU usage and empty memory if necessary
+                if batch_num % 10 == 0:
+                    torch.cuda.empty_cache()
+                    self.logger.info(f"GPU memory usage: {torch.cuda.memory_allocated() / 1e9} GB")
+                    self.logger.info(f"GPU memory reserved: {torch.cuda.memory_reserved() / 1e9} GB")
+                    self.logger.info(f"GPU memory cached: {torch.cuda.memory_cached() / 1e9} GB")
 
             self.logger.info("Waiting for final batches to be processed...")
             inference_results = [ray.get(call_id) for call_id in call_ids]
@@ -314,7 +330,7 @@ class CellViTInferenceMemory(CellViTInference):
                 positions=torch.stack(graph_data["positions"]),
                 metadata=graph_data["metadata"],
             )
-            torch.save(graph, str(self.outdir / f"{output_wsi_name}_cell_graph.pt"))
+            torch.save(graph, str(self.outdir / f"{output_wsi_name}_cells.pt"))
 
         # final output message
         cell_stats_df = pd.DataFrame(cell_dict_wsi["cells"])
